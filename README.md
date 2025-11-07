@@ -1,15 +1,37 @@
 # agent-backend
 
-To install dependencies:
+一个基于 Rust + Axum 构建的高性能后端服务。
+
+## 开发环境要求
+
+- Rust 1.70+
+- Cargo
+
+## 构建与运行
+
+安装依赖并运行：
 
 ```bash
-bun install
+cargo run
 ```
 
-To run:
+构建生产版本：
 
 ```bash
-bun run index.ts
+cargo build --release
 ```
 
-This project was created using `bun init` in bun v1.3.1. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+## Docker 构建
+
+使用 PowerShell 脚本构建：
+
+```powershell
+.\build.ps1
+```
+
+或直接使用 Docker：
+
+```bash
+docker build -t agent-backend .
+docker run -p 3000:3000 agent-backend
+```

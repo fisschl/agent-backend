@@ -1,15 +1,17 @@
 $ErrorActionPreference = "Stop"
 
-docker build -t agent-backend-builder .
+# 定义Docker镜像目标
+$target = "agent-backend"
 
-$containerId = docker create agent-backend-builder
+# 构建Docker镜像
+docker build -t $target .
 
-if (Test-Path -Path "dist") {
-    Remove-Item -Path "dist\*" -Recurse -Force
-} else {
-    New-Item -ItemType Directory -Path "dist"
-}
+# 创建临时容器来提取构建产物
+$containerId = docker create $target
 
-docker cp "${containerId}:/root/dist/." "./dist"
+# 导出构建产物到目标目录
+New-Item -ItemType Directory -Force -Path "./dist"
+docker cp "${containerId}:/root/agent-backend" "./dist/agent-backend"
 
+# 删除临时容器
 docker rm $containerId
