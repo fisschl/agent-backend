@@ -44,6 +44,9 @@ const RESPONSE_HEADERS_BLOCKLIST: &[HeaderName] = &[
 
 #[tokio::main]
 async fn main() {
+    // 加载 .env 文件
+    dotenvy::dotenv().ok();
+
     // 初始化日志
     tracing_subscriber::fmt()
         .pretty()
