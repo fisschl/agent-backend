@@ -1,7 +1,7 @@
 use axum::{
     Router,
     body::Body,
-    extract::{Extension, Path, RawQuery, Request},
+    extract::{Path, RawQuery, Request, State},
     http::{
         HeaderMap, Method, StatusCode,
         header::{self, AUTHORIZATION, HeaderName, HeaderValue},
@@ -10,7 +10,6 @@ use axum::{
     routing::post,
 };
 use reqwest::Client;
-use std::sync::Arc;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::Level;
 use tracing_subscriber::fmt::time::LocalTime;
@@ -42,6 +41,12 @@ const RESPONSE_HEADERS_BLOCKLIST: &[HeaderName] = &[
     header::ACCESS_CONTROL_MAX_AGE,
 ];
 
+/// 应用状态
+#[derive(Clone)]
+struct AppState {
+    http_client: Client,
+}
+
 #[tokio::main]
 async fn main() {
     // 加载 .env 文件
@@ -54,13 +59,15 @@ async fn main() {
         .with_max_level(Level::DEBUG)
         .init();
 
-    // 创建共享的HTTP客户端
-    let http_client = Arc::new(Client::new());
+    // 创建应用状态
+    let state = AppState {
+        http_client: Client::new(),
+    };
 
     // 创建路由
     let app = Router::new()
         .route("/compatible-mode/v1/{*path}", post(proxy_handler))
-        .layer(Extension(http_client))
+        .with_state(state)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http());
 
@@ -75,13 +82,14 @@ async fn main() {
 
 /// 代理处理函数
 async fn proxy_handler(
-    Extension(client): Extension<Arc<Client>>,
+    State(state): State<AppState>,
     Path(path): Path<String>,
     RawQuery(query): RawQuery,
     method: Method,
     headers: HeaderMap,
     body: Request,
 ) -> Result<Response, (StatusCode, String)> {
+    let client = &state.http_client;
     // 构建目标URL
     let mut target_url = format!("https://dashscope.aliyuncs.com/compatible-mode/v1/{}", path);
 
