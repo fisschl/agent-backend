@@ -1,11 +1,13 @@
 use anyhow::Result;
 use axum::{
     extract::{Path, RawQuery, State, ws::WebSocketUpgrade},
-    http::HeaderValue,
     response::IntoResponse,
 };
 use futures::{sink::SinkExt, stream::StreamExt};
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message as WsMessage};
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::{client::IntoClientRequest, http::HeaderValue, protocol::Message as WsMessage},
+};
 
 use crate::AppState;
 
@@ -39,14 +41,15 @@ async fn proxy_websocket(
         target_url.push_str(&query_string);
     }
 
-    // 构建请求并添加 Authorization 头
-    let mut request = axum::http::Request::builder().uri(&target_url).body(())?;
-    let headers = request.headers_mut();
+    // 创建 WebSocket 请求并添加 Authorization 头
+    let mut request = target_url.into_client_request()?;
 
     // 使用从 AppState 传入的 API 密钥设置 Authorization 头
     if let Some(key) = api_key {
         let auth_value = format!("Bearer {}", key);
-        headers.insert("Authorization", HeaderValue::from_str(&auth_value)?);
+        request
+            .headers_mut()
+            .insert("Authorization", HeaderValue::from_str(&auth_value)?);
     }
 
     // 连接到上游 WebSocket
