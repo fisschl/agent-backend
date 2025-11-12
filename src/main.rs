@@ -45,10 +45,6 @@ async fn main() {
             post(handlers::compatible_mode::handle_compatible_mode),
         )
         .route(
-            "/api-ws/v1/{*path}",
-            get(handlers::websocket_api::handle_websocket_api),
-        )
-        .route(
             "/tts-realtime",
             get(handlers::tts_realtime::handle_tts_realtime),
         )
