@@ -3,6 +3,7 @@ use axum::{
     extract::{Query, State, ws::WebSocketUpgrade},
     response::IntoResponse,
 };
+use base64::{Engine, engine::general_purpose::STANDARD};
 use futures::{sink::SinkExt, stream::StreamExt};
 use serde::Deserialize;
 use serde_json::json;
@@ -19,6 +20,15 @@ use crate::AppState;
 #[derive(Debug, Deserialize)]
 pub struct TtsRealtimeQuery {
     pub voice: String,
+}
+
+/// 上游响应消息结构
+#[derive(Debug, Deserialize)]
+struct UpstreamResponse {
+    #[serde(rename = "type")]
+    msg_type: String,
+    #[serde(default)]
+    delta: Option<String>,
 }
 
 /// TTS 实时语音合成接口处理器
@@ -124,38 +134,45 @@ async fn proxy_tts_realtime(
         while let Some(msg) = upstream_read.next().await {
             match msg {
                 Ok(WsMessage::Text(text)) => {
-                    if let Err(e) = client_write
-                        .send(axum::extract::ws::Message::Text(text.into()))
-                        .await
-                    {
-                        tracing::error!("发送文本消息到客户端失败: {}", e);
-                        break;
+                    // 解析 JSON 消息
+                    let response = match serde_json::from_str::<UpstreamResponse>(&text) {
+                        Ok(r) => r,
+                        Err(e) => {
+                            tracing::warn!("解析上游 JSON 消息失败: {}, 原始消息: {}", e, text);
+                            continue;
+                        }
+                    };
+
+                    // 只处理 response.audio.delta 类型
+                    if response.msg_type != "response.audio.delta" {
+                        tracing::debug!("收到上游消息: type={}, 已忽略", response.msg_type);
+                        continue;
                     }
-                }
-                Ok(WsMessage::Binary(data)) => {
+
+                    // 提取 delta 字段
+                    let delta_base64 = match response.delta {
+                        Some(d) => d,
+                        None => {
+                            tracing::warn!("response.audio.delta 消息缺少 delta 字段");
+                            continue;
+                        }
+                    };
+
+                    // Base64 解码
+                    let audio_data = match STANDARD.decode(&delta_base64) {
+                        Ok(data) => data,
+                        Err(e) => {
+                            tracing::error!("Base64 解码失败: {}", e);
+                            continue;
+                        }
+                    };
+
+                    // 发送音频数据到客户端
                     if let Err(e) = client_write
-                        .send(axum::extract::ws::Message::Binary(data.into()))
+                        .send(axum::extract::ws::Message::Binary(audio_data.into()))
                         .await
                     {
-                        tracing::error!("发送二进制消息到客户端失败: {}", e);
-                        break;
-                    }
-                }
-                Ok(WsMessage::Ping(data)) => {
-                    if let Err(e) = client_write
-                        .send(axum::extract::ws::Message::Ping(data.into()))
-                        .await
-                    {
-                        tracing::error!("发送 Ping 到客户端失败: {}", e);
-                        break;
-                    }
-                }
-                Ok(WsMessage::Pong(data)) => {
-                    if let Err(e) = client_write
-                        .send(axum::extract::ws::Message::Pong(data.into()))
-                        .await
-                    {
-                        tracing::error!("发送 Pong 到客户端失败: {}", e);
+                        tracing::error!("发送音频数据到客户端失败: {}", e);
                         break;
                     }
                 }
@@ -172,7 +189,7 @@ async fn proxy_tts_realtime(
                     }
                     break;
                 }
-                // 忽略原始帧
+                // 忽略其他消息类型
                 Ok(_) => {}
                 Err(e) => {
                     tracing::error!("接收上游消息错误: {}", e);
