@@ -88,7 +88,10 @@ async fn proxy_websocket(
                     }
                 }
                 Ok(axum::extract::ws::Message::Close(_)) => {
-                    let _ = upstream_write.send(WsMessage::Close(None)).await;
+                    // 客户端到上游的 Close 消息不携带载荷
+                    if let Err(e) = upstream_write.send(WsMessage::Close(None)).await {
+                        tracing::error!("发送 Close 到上游失败: {}", e);
+                    }
                     break;
                 }
                 Err(e) => {
@@ -139,10 +142,17 @@ async fn proxy_websocket(
                         break;
                     }
                 }
-                Ok(WsMessage::Close(_)) => {
-                    let _ = client_write
-                        .send(axum::extract::ws::Message::Close(None))
-                        .await;
+                Ok(WsMessage::Close(close_frame)) => {
+                    let close_msg = close_frame.map(|f| axum::extract::ws::CloseFrame {
+                        code: f.code.into(),
+                        reason: f.reason.as_ref().into(),
+                    });
+                    if let Err(e) = client_write
+                        .send(axum::extract::ws::Message::Close(close_msg))
+                        .await
+                    {
+                        tracing::error!("发送 Close 到客户端失败: {}", e);
+                    }
                     break;
                 }
                 Ok(WsMessage::Frame(_)) => {
