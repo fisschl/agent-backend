@@ -13,7 +13,7 @@ mod handlers;
 #[derive(Clone)]
 pub struct AppState {
     pub http_client: Client,
-    pub api_key: Option<String>,
+    pub api_key: String,
 }
 
 #[tokio::main]
@@ -28,10 +28,14 @@ async fn main() {
         .with_max_level(Level::DEBUG)
         .init();
 
+    // 从环境变量读取 API 密钥，如果不存在则退出
+    let api_key = std::env::var("DASHSCOPE_API_KEY")
+        .expect("未找到 DASHSCOPE_API_KEY 环境变量，请在 .env 文件中设置或通过环境变量传入");
+
     // 创建应用状态
     let state = AppState {
         http_client: Client::new(),
-        api_key: std::env::var("DASHSCOPE_API_KEY").ok(),
+        api_key,
     };
 
     // 创建路由
@@ -43,6 +47,10 @@ async fn main() {
         .route(
             "/api-ws/v1/{*path}",
             get(handlers::websocket_api::handle_websocket_api),
+        )
+        .route(
+            "/tts-realtime",
+            get(handlers::tts_realtime::handle_tts_realtime),
         )
         .with_state(state)
         .layer(CorsLayer::permissive())

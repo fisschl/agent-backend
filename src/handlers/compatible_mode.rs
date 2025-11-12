@@ -62,10 +62,9 @@ pub async fn handle_compatible_mode(
     }
 
     // 使用 AppState 中的 API 密钥设置 Authorization 头(仅当未传入时)
-    if !request_headers.contains_key(AUTHORIZATION)
-        && let Some(key) = &state.api_key
-        && let Ok(auth_value) = axum::http::HeaderValue::from_str(&format!("Bearer {}", key))
-    {
+    if !request_headers.contains_key(AUTHORIZATION) {
+        let auth_value = axum::http::HeaderValue::from_str(&format!("Bearer {}", state.api_key))
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         request_headers.insert(AUTHORIZATION, auth_value);
     }
 

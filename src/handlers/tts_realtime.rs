@@ -1,48 +1,51 @@
 use anyhow::Result;
 use axum::{
-    extract::{Path, RawQuery, State, ws::WebSocketUpgrade},
+    extract::{Query, State, ws::WebSocketUpgrade},
     response::IntoResponse,
 };
 use futures::{sink::SinkExt, stream::StreamExt};
+use serde::Deserialize;
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{client::IntoClientRequest, http::HeaderValue, protocol::Message as WsMessage},
 };
+use url::Url;
 
 use crate::AppState;
 
-/// WebSocket API 代理处理器
-pub async fn handle_websocket_api(
+/// TTS 实时接口查询参数
+#[derive(Debug, Deserialize)]
+pub struct TtsRealtimeQuery {
+    pub voice: String,
+}
+
+/// TTS 实时语音合成接口处理器
+pub async fn handle_tts_realtime(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
-    Path(path): Path<String>,
-    RawQuery(query): RawQuery,
+    Query(query): Query<TtsRealtimeQuery>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| async move {
-        if let Err(e) = proxy_websocket(socket, path, query, state.api_key).await {
-            tracing::error!("WebSocket 代理错误: {}", e);
+        if let Err(e) = proxy_tts_realtime(socket, query, state.api_key).await {
+            tracing::error!("TTS 实时语音合成 WebSocket 错误: {}", e);
         }
     })
 }
 
-/// 处理 WebSocket 代理逻辑
-async fn proxy_websocket(
+/// 处理 TTS 实时语音合成 WebSocket 代理逻辑
+async fn proxy_tts_realtime(
     client_socket: axum::extract::ws::WebSocket,
-    path: String,
-    query: Option<String>,
+    query: TtsRealtimeQuery,
     api_key: String,
 ) -> Result<()> {
-    // 构建目标 WSS URL
-    let mut target_url = format!("wss://dashscope.aliyuncs.com/api-ws/v1/{}", path);
-
-    // 添加查询参数
-    if let Some(query_string) = query {
-        target_url.push('?');
-        target_url.push_str(&query_string);
-    }
+    // 构建目标 WSS URL，使用 Url 来管理查询参数
+    let mut url = Url::parse("wss://dashscope.aliyuncs.com/api-ws/v1/realtime")?;
+    url.query_pairs_mut()
+        .append_pair("model", "qwen3-tts-flash-realtime")
+        .append_pair("voice", &query.voice);
 
     // 创建 WebSocket 请求并添加 Authorization 头
-    let mut request = target_url.into_client_request()?;
+    let mut request = url.as_str().into_client_request()?;
 
     // 设置 Authorization 头
     let auth_value = format!("Bearer {}", api_key);
