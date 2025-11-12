@@ -59,6 +59,7 @@ fn markdown_to_plain_text(text: &str) -> String {
             | Event::End(TagEnd::List(_))
             | Event::End(TagEnd::Table)
             | Event::End(TagEnd::TableRow)
+            | Event::End(TagEnd::TableCell)
             | Event::End(TagEnd::DefinitionListTitle)
             | Event::End(TagEnd::DefinitionListDefinition) => {
                 plain_text.push('\n');
@@ -231,6 +232,9 @@ async fn proxy_tts_realtime(
     upstream_write.send(WsMessage::Text(init_message)).await?;
     tracing::debug!("已发送 session.update 消息");
 
+    // 等待 100 毫秒
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
     // 分离客户端 socket
     let (mut client_write, mut client_read) = client_socket.split();
 
@@ -241,6 +245,7 @@ async fn proxy_tts_realtime(
                 Ok(axum::extract::ws::Message::Text(text)) => {
                     // 预处理：移除 Markdown 格式字符
                     let text_str = markdown_to_plain_text(&text.to_string());
+                    tracing::debug!("Markdown 转换后的文本: {}", text_str);
 
                     // 如果文本超过 100 字符，按空白字符切分
                     let chunks: Vec<&str> = if text_str.len() > 100 {
@@ -269,6 +274,29 @@ async fn proxy_tts_realtime(
                             tracing::error!("发送文本消息到上游失败: {}", e);
                             break;
                         }
+
+                        tracing::debug!("已发送文本消息到上游: {}", chunk);
+
+                        // 等待 200 毫秒
+                        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                    }
+
+                    let commit_message = json!({
+                        "event_id": Uuid::now_v7().to_string(),
+                        "type": "input_text_buffer.commit"
+                    });
+
+                    let message_str = match serde_json::to_string(&commit_message) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::error!("JSON 序列化失败: {}", e);
+                            break;
+                        }
+                    };
+
+                    if let Err(e) = upstream_write.send(WsMessage::Text(message_str)).await {
+                        tracing::error!("发送 commit 消息到上游失败: {}", e);
+                        break;
                     }
                 }
                 Ok(axum::extract::ws::Message::Close(_)) => {
