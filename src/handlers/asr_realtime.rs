@@ -106,8 +106,6 @@ async fn proxy_asr_realtime(
                         tracing::error!("发送音频消息到上游失败: {}", e);
                         break;
                     }
-
-                    tracing::debug!("已发送音频数据到上游");
                 }
                 Ok(axum::extract::ws::Message::Close(_)) => {
                     if let Err(e) = upstream_write.send(WsMessage::Close(None)).await {
@@ -146,9 +144,10 @@ async fn proxy_asr_realtime(
 
                     // 处理转录相关的事件
                     match msg_type {
-                        "conversation.item.input_audio_transcription.text" => {
-                            // 增量转录结果，直接返回纯文本
-                            let Some(text) = json_value.get("text").and_then(|v| v.as_str()) else {
+                        "conversation.item.input_audio_transcription.completed" => {
+                            // 转录完成结果，直接返回纯文本
+                            let Some(text) = json_value.get("transcript").and_then(|v| v.as_str())
+                            else {
                                 continue;
                             };
 
