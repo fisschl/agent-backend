@@ -48,6 +48,10 @@ async fn main() {
             "/tts-realtime",
             get(handlers::tts_realtime::handle_tts_realtime),
         )
+        .route(
+            "/asr-realtime",
+            get(handlers::asr_realtime::handle_asr_realtime),
+        )
         .with_state(state)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http());

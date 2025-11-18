@@ -14,7 +14,17 @@
   - 输出格式：PCM，采样率 24kHz
   - 对接阿里云 DashScope TTS Realtime API
 
-### 2. 兼容模式代理
+### 2. 实时 ASR（语音识别）
+
+- **WebSocket 接口**：`ws://localhost:3000/asr-realtime`
+- **功能特性**：
+  - 支持实时语音识别流式输出
+  - 启用 VAD（语音活动检测）自动断句
+  - 直接返回纯文本结果，无需 JSON 解析
+  - 输入格式：PCM，采样率 16kHz
+  - 对接阿里云 DashScope ASR Realtime API
+
+### 3. 兼容模式代理
 
 - **HTTP 接口**：`POST /compatible-mode/v1/{path}`
 - **功能特性**：
@@ -118,7 +128,35 @@ ws.onmessage = (event) => {
 };
 ```
 
-### 2. 兼容模式代理
+### 2. ASR 实时语音识别
+
+**接口**：`GET /asr-realtime`  
+**协议**：WebSocket  
+**查询参数**：无
+
+**示例**：
+
+```javascript
+const ws = new WebSocket("ws://localhost:3000/asr-realtime");
+
+// 发送音频数据（Binary 格式，PCM 16kHz）
+ws.send(audioData); // ArrayBuffer
+
+// 接收识别结果（纯文本）
+ws.onmessage = (event) => {
+  const text = event.data; // 直接是文本字符串
+  console.log("识别结果:", text);
+};
+```
+
+**特性说明**：
+
+- 启用 VAD 模式，服务端自动检测语音起止点
+- 直接返回纯文本，无需 JSON 解析
+- 支持实时增量输出
+- 错误仅记录在服务端日志，不透传给客户端
+
+### 3. 兼容模式代理
 
 **接口**：`POST /compatible-mode/v1/{path}`  
 **说明**：代理转发到 `https://dashscope.aliyuncs.com/compatible-mode/v1/{path}`
@@ -143,6 +181,7 @@ curl -X POST http://localhost:3000/compatible-mode/v1/chat/completions \
 │   ├── handlers.rs                # 处理器模块声明
 │   └── handlers/
 │       ├── tts_realtime.rs        # TTS 实时语音合成处理逻辑
+│       ├── asr_realtime.rs        # ASR 实时语音识别处理逻辑
 │       └── compatible_mode.rs     # 兼容模式代理处理逻辑
 ├── Cargo.toml                     # 项目依赖配置
 ├── Cargo.lock                     # 依赖版本锁定
