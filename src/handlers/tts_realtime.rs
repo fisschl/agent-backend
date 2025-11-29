@@ -30,7 +30,7 @@ pub struct TtsRealtimeQuery {
 /// 1. 归一化行结束符（统一为 \n）
 /// 2. Unicode 归一化（NFKC，统一全角/兼容字符）
 /// 3. 统一空白字符为普通空格，保留换行
-/// 4. 过滤特殊符号，仅保留：字母、数字、逗号、句号、换行、空白
+/// 4. 过滤特殊符号，仅保留：字母、数字、常见标点（逗号、句号、问号、感叹号、省略号）、换行、空白
 /// 5. 压缩多余空格与空行
 fn sanitize_text(text: &str) -> String {
     // 1. 归一化行结束符
@@ -49,20 +49,26 @@ fn sanitize_text(text: &str) -> String {
         })
         .collect::<String>();
 
-    // 4. 过滤特殊符号（白名单：字母、数字、逗号、句号、换行、空白）
-    // 保留：\p{L}(字母)、\p{N}(数字)、\p{Zs}(分隔空白)、,，、(逗号/顿号)、.。．(句号)、\n(换行)
-    let re = Regex::new(r"[^\p{L}\p{N}\p{Zs},，、.。．\n]+").unwrap();
-    let filtered = re.replace_all(&unified_whitespace, "");
+    // 4. 将分隔性符号替换为空格（避免单词粘连）
+    // 这些符号通常用于分隔内容，删除后应保留空格间隔
+    // 包括：括号、引号、斜杠、冒号、分号、井号、at符号、竖线、星号等
+    let re_separators = Regex::new(r#"[\[\]()'{}"/<>:;@#|*_`\\\\]+"#).unwrap();
+    let replaced_separators = re_separators.replace_all(&unified_whitespace, " ");
 
-    // 5. 压缩多余空格
+    // 5. 过滤剩余特殊符号（白名单：字母、数字、常见标点、换行、空白）
+    // 保留：字母、数字、分隔空白、逗号、句号、感叹号、问号、省略号、换行
+    let re = Regex::new(r#"[^\p{L}\p{N}\p{Zs},，、.。．!！?？…\n]+"#).unwrap();
+    let filtered = re.replace_all(&replaced_separators, "");
+
+    // 6. 压缩多余空格
     let re_spaces = Regex::new(r" +").unwrap();
     let compressed_spaces = re_spaces.replace_all(&filtered, " ");
 
-    // 6. 压缩多余空行（最多保留 2 个连续换行）
+    // 7. 压缩多余空行（最多保留 2 个连续换行）
     let re_newlines = Regex::new(r"\n{3,}").unwrap();
     let compressed_newlines = re_newlines.replace_all(&compressed_spaces, "\n\n");
 
-    // 7. 清理首尾空白
+    // 8. 清理首尾空白
     compressed_newlines.trim().to_string()
 }
 
@@ -74,7 +80,8 @@ mod tests {
     fn test_sanitize_text_basic_symbols() {
         let input = "Hello **world**!";
         let output = sanitize_text(input);
-        assert_eq!(output, "Hello world");
+        // 星号被替换为空格，感叹号保留
+        assert_eq!(output, "Hello world !");
     }
 
     #[test]
@@ -97,14 +104,15 @@ mod tests {
     fn test_sanitize_text_links() {
         let input = "Check [this link](https://example.com) out";
         let output = sanitize_text(input);
-        // 括号与冒号被过滤，URL 会紧邻前后文本
-        assert_eq!(output, "Check this linkhttpsexample.com out");
+        // 括号、冒号、斜杠被替换为空格，避免单词粘连
+        assert_eq!(output, "Check this link https example.com out");
     }
 
     #[test]
     fn test_sanitize_text_emoji_and_symbols() {
         let input = "Hello 😊 #Topic @User";
         let output = sanitize_text(input);
+        // Emoji、#、@ 被过滤
         assert_eq!(output, "Hello Topic User");
     }
 
@@ -112,8 +120,8 @@ mod tests {
     fn test_sanitize_text_chinese_punctuation() {
         let input = "示例：价格为￥99.99（约）";
         let output = sanitize_text(input);
-        // 冒号、货币符号、括号被过滤
-        assert_eq!(output, "示例价格为99.99约");
+        // 冒号、括号被替换为空格，货币符号被删除
+        assert_eq!(output, "示例 价格为99.99 约");
     }
 
     #[test]
@@ -199,6 +207,8 @@ mod tests {
         assert!(!output.contains("%"));
         assert!(!output.contains("😊"));
         assert!(output.contains("列表项"));
+        // 感叹号应该被保留（全角转半角）
+        assert!(output.contains("!"));
     }
 
     #[test]
@@ -214,8 +224,8 @@ mod tests {
         assert!(output.contains("مرحبا"));
         assert!(output.contains("Привет"));
 
-        // 验证感叹号被过滤
-        assert!(!output.contains("！"));
+        // 验证感叹号被保留（NFKC 将全角感叹号转为半角）
+        assert!(output.contains("!"));
     }
 
     #[test]
@@ -250,6 +260,41 @@ mod tests {
         assert!(output.contains(",")); // 全角逗号归一化为半角
         assert!(output.contains("、")); // 顿号保留
         assert!(output.contains("。")); // 全角句号保留
+    }
+
+    #[test]
+    fn test_sanitize_text_exclamation_and_question() {
+        // 测试感叹号和问号的保留
+        let input = "真的吗？太棒了！What? Great! どうですか？";
+        let output = sanitize_text(input);
+
+        // 验证问号和感叹号都被保留（全角转半角）
+        assert!(output.contains("?"));
+        assert!(output.contains("!"));
+        assert_eq!(output, "真的吗?太棒了!What? Great! どうですか?");
+    }
+
+    #[test]
+    fn test_sanitize_text_ellipsis_and_tilde() {
+        // 测试省略号保留，波浪号过滤
+        let input = "等待中… 好的~";
+        let output = sanitize_text(input);
+
+        // NFKC 将省略号 … (U+2026) 转换为三个点 ...
+        // 波浪号被过滤
+        assert!(output.contains("..."));
+        assert!(!output.contains("~"));
+        assert_eq!(output, "等待中... 好的");
+    }
+
+    #[test]
+    fn test_sanitize_text_mixed_punctuation() {
+        // 测试混合标点符号场景
+        let input = "你好！你好吗？我是 AI… 很高兴认识你~";
+        let output = sanitize_text(input);
+
+        // 感叹号、问号、省略号保留，波浪号过滤
+        assert_eq!(output, "你好!你好吗?我是 AI... 很高兴认识你");
     }
 }
 
