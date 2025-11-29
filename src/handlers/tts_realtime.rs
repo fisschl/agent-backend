@@ -5,13 +5,14 @@ use axum::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures::{sink::SinkExt, stream::StreamExt};
-use pulldown_cmark::{Event, Options, Parser, TagEnd};
+use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{client::IntoClientRequest, http::HeaderValue, protocol::Message as WsMessage},
 };
+use unicode_normalization::UnicodeNormalization;
 use url::Url;
 use uuid::Uuid;
 
@@ -23,54 +24,46 @@ pub struct TtsRealtimeQuery {
     pub voice: String,
 }
 
-/// 将 Markdown 转换为适合语音输出的纯文本
-fn markdown_to_plain_text(text: &str) -> String {
-    // 启用所有常用的 Markdown 扩展功能
-    let mut options = Options::empty();
-    options.insert(Options::ENABLE_TABLES); // 表格
-    options.insert(Options::ENABLE_FOOTNOTES); // 脚注
-    options.insert(Options::ENABLE_STRIKETHROUGH); // 删除线 ~~text~~
-    options.insert(Options::ENABLE_TASKLISTS); // 任务列表 - [ ] task
-    options.insert(Options::ENABLE_SMART_PUNCTUATION); // 智能标点符号
-    options.insert(Options::ENABLE_HEADING_ATTRIBUTES); // 标题属性
-    options.insert(Options::ENABLE_MATH); // 数学公式
-    options.insert(Options::ENABLE_GFM); // GitHub Flavored Markdown
-    options.insert(Options::ENABLE_DEFINITION_LIST); // 定义列表
+/// 将文本清洗为适合语音输出的纯文本
+///
+/// 处理流程：
+/// 1. 归一化行结束符（统一为 \n）
+/// 2. Unicode 归一化（NFKC，统一全角/兼容字符）
+/// 3. 统一空白字符为普通空格，保留换行
+/// 4. 过滤特殊符号，仅保留：字母、数字、逗号、句号、换行、空白
+/// 5. 压缩多余空格与空行
+fn sanitize_text(text: &str) -> String {
+    // 1. 归一化行结束符
+    let normalized_lines = text.replace("\r\n", "\n").replace('\r', "\n");
 
-    let parser = Parser::new_ext(text, options);
-    let mut plain_text = String::new();
+    // 2. Unicode 归一化（NFKC）
+    let normalized: String = normalized_lines.nfkc().collect();
 
-    for event in parser {
-        match event {
-            // 提取文本内容
-            Event::Text(t) | Event::Code(t) => {
-                plain_text.push_str(&t);
-            }
-            // 软换行保留为空格
-            Event::SoftBreak => plain_text.push(' '),
-            // 硬换行保留为换行符
-            Event::HardBreak => plain_text.push('\n'),
-            // 块级元素结束统一添加换行
-            Event::End(TagEnd::Heading(_))
-            | Event::End(TagEnd::Paragraph)
-            | Event::End(TagEnd::Item)
-            | Event::End(TagEnd::BlockQuote(_))
-            | Event::End(TagEnd::CodeBlock)
-            | Event::End(TagEnd::List(_))
-            | Event::End(TagEnd::Table)
-            | Event::End(TagEnd::TableRow)
-            | Event::End(TagEnd::TableCell)
-            | Event::End(TagEnd::DefinitionListTitle)
-            | Event::End(TagEnd::DefinitionListDefinition) => {
-                plain_text.push('\n');
-            }
-            // 行内元素忽略（文本之间已经有正常的空格）
-            // 其他元素忽略
-            _ => {}
-        }
-    }
+    // 3. 统一空白字符（保留换行）
+    let unified_whitespace = normalized
+        .chars()
+        .map(|c| match c {
+            '\n' => '\n',
+            c if c.is_whitespace() => ' ',
+            c => c,
+        })
+        .collect::<String>();
 
-    plain_text.trim().to_string()
+    // 4. 过滤特殊符号（白名单：字母、数字、逗号、句号、换行、空白）
+    // 保留：\p{L}(字母)、\p{N}(数字)、\p{Zs}(分隔空白)、,，、(逗号/顿号)、.。．(句号)、\n(换行)
+    let re = Regex::new(r"[^\p{L}\p{N}\p{Zs},，、.。．\n]+").unwrap();
+    let filtered = re.replace_all(&unified_whitespace, "");
+
+    // 5. 压缩多余空格
+    let re_spaces = Regex::new(r" +").unwrap();
+    let compressed_spaces = re_spaces.replace_all(&filtered, " ");
+
+    // 6. 压缩多余空行（最多保留 2 个连续换行）
+    let re_newlines = Regex::new(r"\n{3,}").unwrap();
+    let compressed_newlines = re_newlines.replace_all(&compressed_spaces, "\n\n");
+
+    // 7. 清理首尾空白
+    compressed_newlines.trim().to_string()
 }
 
 #[cfg(test)]
@@ -78,58 +71,72 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_markdown_to_plain_text_basic() {
+    fn test_sanitize_text_basic_symbols() {
         let input = "Hello **world**!";
-        let output = markdown_to_plain_text(input);
-        assert_eq!(output, "Hello world!");
+        let output = sanitize_text(input);
+        assert_eq!(output, "Hello world");
     }
 
     #[test]
-    fn test_markdown_to_plain_text_headers() {
+    fn test_sanitize_text_markdown_headers() {
         let input = "## Heading\nContent";
-        let output = markdown_to_plain_text(input);
-        // 标题后有换行，段落也会添加换行
-        assert!(output.contains("Heading"));
-        assert!(output.contains("Content"));
-        // 打印实际输出以验证
-        println!("Output: {:?}", output);
+        let output = sanitize_text(input);
+        assert_eq!(output, "Heading\nContent");
     }
 
     #[test]
-    fn test_markdown_to_plain_text_paragraphs() {
+    fn test_sanitize_text_paragraphs() {
         let input = "Paragraph 1\n\nParagraph 2\n\nParagraph 3";
-        let output = markdown_to_plain_text(input);
-        println!("Paragraphs output: {:?}", output);
+        let output = sanitize_text(input);
         assert!(output.contains("Paragraph 1"));
         assert!(output.contains("Paragraph 2"));
         assert!(output.contains("Paragraph 3"));
     }
 
     #[test]
-    fn test_markdown_to_plain_text_links() {
+    fn test_sanitize_text_links() {
         let input = "Check [this link](https://example.com) out";
-        let output = markdown_to_plain_text(input);
-        assert_eq!(output, "Check this link out");
+        let output = sanitize_text(input);
+        // 括号与冒号被过滤，URL 会紧邻前后文本
+        assert_eq!(output, "Check this linkhttpsexample.com out");
     }
 
     #[test]
-    fn test_markdown_to_plain_text_code() {
-        let input = "Use `code` here";
-        let output = markdown_to_plain_text(input);
-        assert_eq!(output, "Use code here");
+    fn test_sanitize_text_emoji_and_symbols() {
+        let input = "Hello 😊 #Topic @User";
+        let output = sanitize_text(input);
+        assert_eq!(output, "Hello Topic User");
     }
 
     #[test]
-    fn test_markdown_to_plain_text_lists() {
+    fn test_sanitize_text_chinese_punctuation() {
+        let input = "示例：价格为￥99.99（约）";
+        let output = sanitize_text(input);
+        // 冒号、货币符号、括号被过滤
+        assert_eq!(output, "示例价格为99.99约");
+    }
+
+    #[test]
+    fn test_sanitize_text_preserve_common_punctuation() {
+        let input = "条目A，条目B，条目C。";
+        let output = sanitize_text(input);
+        // NFKC 将全角逗号、句号归一化为半角（这是期望行为）
+        assert_eq!(output, "条目A,条目B,条目C。");
+    }
+
+    #[test]
+    fn test_sanitize_text_list_markers() {
         let input = "- Item 1\n- Item 2\n- Item 3";
-        let output = markdown_to_plain_text(input);
-        assert_eq!(output, "Item 1\nItem 2\nItem 3");
+        let output = sanitize_text(input);
+        assert!(output.contains("Item 1"));
+        assert!(output.contains("Item 2"));
+        assert!(output.contains("Item 3"));
     }
 
     #[test]
-    fn test_markdown_to_plain_text_table() {
+    fn test_sanitize_text_table() {
         let input = "| Name | Age |\n|------|-----|\n| Alice| 30  |\n| Bob  | 25  |";
-        let output = markdown_to_plain_text(input);
+        let output = sanitize_text(input);
         assert!(output.contains("Name"));
         assert!(output.contains("Age"));
         assert!(output.contains("Alice"));
@@ -139,43 +146,110 @@ mod tests {
     }
 
     #[test]
-    fn test_markdown_to_plain_text_strikethrough() {
-        let input = "This is ~~wrong~~ correct";
-        let output = markdown_to_plain_text(input);
-        assert_eq!(output, "This is wrong correct");
+    fn test_sanitize_text_multiple_spaces() {
+        let input = "Hello    world    test";
+        let output = sanitize_text(input);
+        assert_eq!(output, "Hello world test");
     }
 
     #[test]
-    fn test_markdown_to_plain_text_emphasis() {
-        let input = "This is *italic* and **bold** text";
-        let output = markdown_to_plain_text(input);
-        assert_eq!(output, "This is italic and bold text");
+    fn test_sanitize_text_excessive_newlines() {
+        let input = "Line 1\n\n\n\n\nLine 2";
+        let output = sanitize_text(input);
+        assert_eq!(output, "Line 1\n\nLine 2");
     }
 
     #[test]
-    fn test_markdown_to_plain_text_task_list() {
-        let input = "- [x] Done\n- [ ] Todo";
-        let output = markdown_to_plain_text(input);
-        assert!(output.contains("Done"));
-        assert!(output.contains("Todo"));
+    fn test_sanitize_text_windows_line_endings() {
+        let input = "Line 1\r\nLine 2\r\nLine 3";
+        let output = sanitize_text(input);
+        assert_eq!(output, "Line 1\nLine 2\nLine 3");
     }
 
     #[test]
-    fn test_markdown_to_plain_text_blockquote() {
-        let input = "> This is a quote";
-        let output = markdown_to_plain_text(input);
-        assert_eq!(output, "This is a quote");
+    fn test_sanitize_text_unicode_normalization() {
+        // NFKC 将全角逗号归一化为半角，全角句号保持不变
+        let input = "测试，全角。字符";
+        let output = sanitize_text(input);
+        assert_eq!(output, "测试,全角。字符");
     }
 
     #[test]
-    fn test_markdown_to_plain_text_complex() {
-        let input = "## Hello **World**\n\nThis is a `code` example with [link](url).\n\n- Item 1\n- Item 2";
-        let output = markdown_to_plain_text(input);
-        assert!(output.contains("Hello World"));
-        assert!(output.contains("code"));
-        assert!(output.contains("link"));
-        assert!(output.contains("Item 1"));
-        assert!(output.contains("Item 2"));
+    fn test_sanitize_text_decimal_numbers() {
+        let input = "Price: $99.99 or 1,234.56";
+        let output = sanitize_text(input);
+        assert_eq!(output, "Price 99.99 or 1,234.56");
+    }
+
+    #[test]
+    fn test_sanitize_text_real_world_tts() {
+        // 模拟实际 TTS 输入场景
+        let input = "## 你好！欢迎使用 **AI 助手**\n\n这是一段包含 Markdown、符号（@#$%）和 Emoji 😊 的文本。\n\n- 列表项 1\n- 列表项 2";
+        let output = sanitize_text(input);
+        // 期望结果：移除所有格式符号，保留文本、空格、换行和基本标点
+        assert!(output.contains("你好"));
+        assert!(output.contains("欢迎使用"));
+        assert!(output.contains("AI"));
+        assert!(output.contains("助手"));
+        assert!(!output.contains("**"));
+        assert!(!output.contains("##"));
+        assert!(!output.contains("@"));
+        assert!(!output.contains("#"));
+        assert!(!output.contains("$"));
+        assert!(!output.contains("%"));
+        assert!(!output.contains("😊"));
+        assert!(output.contains("列表项"));
+    }
+
+    #[test]
+    fn test_sanitize_text_multilingual_support() {
+        // 测试多语言支持：中文、日文、韩文、阿拉伯文、俄文
+        let input = "中文：你好世界！ 日本語：こんにちは！ 한국어：안녕하세요！ العربية：مرحبا！ Русский：Привет！";
+        let output = sanitize_text(input);
+
+        // 验证所有语言文字都被保留
+        assert!(output.contains("你好世界"));
+        assert!(output.contains("こんにちは"));
+        assert!(output.contains("안녕하세요"));
+        assert!(output.contains("مرحبا"));
+        assert!(output.contains("Привет"));
+
+        // 验证感叹号被过滤
+        assert!(!output.contains("！"));
+    }
+
+    #[test]
+    fn test_sanitize_text_unicode_categories() {
+        // 测试 Unicode 属性类别的正确识别
+        // \p{L} - 字母（所有语言）
+        // \p{N} - 数字（所有数字系统）
+        let input = "English字母123数字٣٤٥阿拉伯数字";
+        let output = sanitize_text(input);
+
+        // 所有字母和数字都应该保留（阿拉伯数字也是 \p{N}）
+        assert_eq!(output, "English字母123数字٣٤٥阿拉伯数字");
+    }
+
+    #[test]
+    fn test_sanitize_text_nfkc_normalization() {
+        // 测试 NFKC 归一化：全角 → 半角转换
+        let input = "ＨＥＬＬＯｗｏｒｌｄ１２３";
+        let output = sanitize_text(input);
+
+        // 全角拉丁字母和数字应转为半角
+        assert_eq!(output, "HELLOworld123");
+    }
+
+    #[test]
+    fn test_sanitize_text_cjk_punctuation() {
+        // 测试中日韩标点的处理
+        let input = "中文，标点。日文、句読点。韓国語、句読点。";
+        let output = sanitize_text(input);
+
+        // 逗号（、和，）及句号（。）应保留
+        assert!(output.contains(",")); // 全角逗号归一化为半角
+        assert!(output.contains("、")); // 顿号保留
+        assert!(output.contains("。")); // 全角句号保留
     }
 }
 
@@ -243,9 +317,9 @@ async fn proxy_tts_realtime(
         while let Some(msg) = client_read.next().await {
             match msg {
                 Ok(axum::extract::ws::Message::Text(text)) => {
-                    // 预处理：移除 Markdown 格式字符
-                    let text_str = markdown_to_plain_text(&text.to_string());
-                    tracing::debug!("Markdown 转换后的文本: {}", text_str);
+                    // 预处理：清洗文本，移除特殊符号
+                    let text_str = sanitize_text(&text.to_string());
+                    tracing::debug!("文本清洗后: {}", text_str);
 
                     // 如果文本超过 100 字符，按空白字符切分
                     let chunks: Vec<&str> = if text_str.len() > 100 {
