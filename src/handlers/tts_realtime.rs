@@ -5,6 +5,7 @@ use axum::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures::{sink::SinkExt, stream::StreamExt};
+use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
@@ -23,6 +24,23 @@ use crate::AppState;
 pub struct TtsRealtimeQuery {
     pub voice: String,
 }
+
+// 预编译正则表达式以提升性能
+// 使用 Lazy 确保正则表达式只编译一次，在多次调用时复用
+static RE_SEPARATORS: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"[\[\]()'{}"/<>:;@#|*_`\\\\]+"#).expect("Failed to compile RE_SEPARATORS regex")
+});
+
+static RE_FILTER: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"[^\p{L}\p{N}\p{Zs},，、.。．!！?？…\n]+"#)
+        .expect("Failed to compile RE_FILTER regex")
+});
+
+static RE_SPACES: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r" +").expect("Failed to compile RE_SPACES regex"));
+
+static RE_NEWLINES: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\n{3,}").expect("Failed to compile RE_NEWLINES regex"));
 
 /// 将文本清洗为适合语音输出的纯文本
 ///
@@ -51,22 +69,16 @@ fn sanitize_text(text: &str) -> String {
 
     // 4. 将分隔性符号替换为空格（避免单词粘连）
     // 这些符号通常用于分隔内容，删除后应保留空格间隔
-    // 包括：括号、引号、斜杠、冒号、分号、井号、at符号、竖线、星号等
-    let re_separators = Regex::new(r#"[\[\]()'{}"/<>:;@#|*_`\\\\]+"#).unwrap();
-    let replaced_separators = re_separators.replace_all(&unified_whitespace, " ");
+    let replaced_separators = RE_SEPARATORS.replace_all(&unified_whitespace, " ");
 
     // 5. 过滤剩余特殊符号（白名单：字母、数字、常见标点、换行、空白）
-    // 保留：字母、数字、分隔空白、逗号、句号、感叹号、问号、省略号、换行
-    let re = Regex::new(r#"[^\p{L}\p{N}\p{Zs},，、.。．!！?？…\n]+"#).unwrap();
-    let filtered = re.replace_all(&replaced_separators, "");
+    let filtered = RE_FILTER.replace_all(&replaced_separators, "");
 
     // 6. 压缩多余空格
-    let re_spaces = Regex::new(r" +").unwrap();
-    let compressed_spaces = re_spaces.replace_all(&filtered, " ");
+    let compressed_spaces = RE_SPACES.replace_all(&filtered, " ");
 
     // 7. 压缩多余空行（最多保留 2 个连续换行）
-    let re_newlines = Regex::new(r"\n{3,}").unwrap();
-    let compressed_newlines = re_newlines.replace_all(&compressed_spaces, "\n\n");
+    let compressed_newlines = RE_NEWLINES.replace_all(&compressed_spaces, "\n\n");
 
     // 8. 清理首尾空白
     compressed_newlines.trim().to_string()

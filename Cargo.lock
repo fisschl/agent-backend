@@ -11,6 +11,7 @@ dependencies = [
  "base64",
  "dotenvy",
  "futures",
+ "once_cell",
  "regex",
  "reqwest",
  "serde",
