@@ -22,8 +22,8 @@ RUN cargo build --release
 # 最终阶段：创建包含构建产物的镜像
 FROM rust:1
 WORKDIR /root
-COPY --from=builder /root/target/release/agent-backend ./agent-backend
+COPY --from=builder /root/target/release/free-model ./free-model
 
 EXPOSE 3000
 
-CMD ["./agent-backend"]
+CMD ["./free-model"]

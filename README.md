@@ -1,4 +1,4 @@
-# agent-backend
+# free-model
 
 一个基于 Rust + Axum 构建的高性能后端服务，主要用于支持 AI 代理相关功能。采用异步架构设计，支持 WebSocket 实时通信和 HTTP 代理转发，适用于低延迟、高并发场景。
 
@@ -83,7 +83,7 @@ cargo run
 cargo build --release
 ```
 
-可执行文件位于 `target/release/agent-backend`
+可执行文件位于 `target/release/free-model`
 
 ## Docker 构建
 
@@ -97,10 +97,10 @@ cargo build --release
 
 ```bash
 # 构建镜像
-docker build -t agent-backend .
+docker build -t free-model .
 
 # 运行容器
-docker run -p 3000:3000 -e DASHSCOPE_API_KEY=your_api_key_here agent-backend
+docker run -p 3000:3000 -e DASHSCOPE_API_KEY=your_api_key_here free-model
 ```
 
 ## API 接口文档

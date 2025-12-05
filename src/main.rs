@@ -1,7 +1,4 @@
-use axum::{
-    Router,
-    routing::{get, post},
-};
+use axum::{Router, routing::post};
 use reqwest::Client;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::Level;
@@ -43,14 +40,6 @@ async fn main() {
         .route(
             "/compatible-mode/v1/{*path}",
             post(handlers::compatible_mode::handle_compatible_mode),
-        )
-        .route(
-            "/tts-realtime",
-            get(handlers::tts_realtime::handle_tts_realtime),
-        )
-        .route(
-            "/asr-realtime",
-            get(handlers::asr_realtime::handle_asr_realtime),
         )
         .with_state(state)
         .layer(CorsLayer::permissive())

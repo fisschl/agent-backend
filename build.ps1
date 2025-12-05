@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 # 定义Docker镜像目标
-$target = "agent-backend"
+$target = "free-model"
 
 # 构建Docker镜像
 docker build -t $target .
@@ -11,7 +11,7 @@ $containerId = docker create $target
 
 # 导出构建产物到目标目录
 New-Item -ItemType Directory -Force -Path "./dist"
-docker cp "${containerId}:/root/agent-backend" "./dist/agent-backend"
+docker cp "${containerId}:/root/free-model" "./dist/free-model"
 
 # 删除临时容器
 docker rm $containerId

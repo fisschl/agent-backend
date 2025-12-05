@@ -3,31 +3,6 @@
 version = 4
 
 [[package]]
-name = "agent-backend"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "base64",
- "dotenvy",
- "futures",
- "once_cell",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "time",
- "tokio",
- "tokio-tungstenite 0.24.0",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "unicode-normalization",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -300,6 +275,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "free-model"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64",
+ "dotenvy",
+ "futures",
+ "once_cell",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+ "tokio-tungstenite 0.24.0",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "unicode-normalization",
+ "url",
+ "uuid",
 ]
 
 [[package]]
