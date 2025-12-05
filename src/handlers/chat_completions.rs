@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    extract::{Path, RawQuery, Request, State},
+    extract::{RawQuery, Request, State},
     http::{HeaderMap, Method, StatusCode, header::AUTHORIZATION},
     response::Response,
 };
@@ -34,10 +34,8 @@ const RESPONSE_HEADERS_BLOCKLIST: &[axum::http::HeaderName] = &[
     axum::http::header::ACCESS_CONTROL_MAX_AGE,
 ];
 
-/// HTTP 兼容模式代理处理器
-pub async fn handle_compatible_mode(
+pub async fn handle_chat_completions(
     State(state): State<AppState>,
-    Path(path): Path<String>,
     RawQuery(query): RawQuery,
     method: Method,
     headers: HeaderMap,
@@ -45,7 +43,7 @@ pub async fn handle_compatible_mode(
 ) -> Result<Response, (StatusCode, String)> {
     let client = &state.http_client;
     // 构建目标URL
-    let mut target_url = format!("https://dashscope.aliyuncs.com/compatible-mode/v1/{}", path);
+    let mut target_url = String::from("https://api.deepseek.com/chat/completions");
 
     // 添加查询参数
     if let Some(query_string) = query {

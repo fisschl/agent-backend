@@ -1,1 +1,1 @@
-pub mod compatible_mode;
+pub mod chat_completions;

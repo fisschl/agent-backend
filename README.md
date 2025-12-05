@@ -55,12 +55,12 @@
 在项目根目录创建 `.env` 文件，配置以下环境变量：
 
 ```env
-DASHSCOPE_API_KEY=your_api_key_here
+DEEPSEEK_API_KEY=your_api_key_here
 ```
 
 **说明**：
 
-- `DASHSCOPE_API_KEY`：阿里云 DashScope API 密钥（必填）
+- `DEEPSEEK_API_KEY`：DeepSeek API 密钥（必填）
 - 如果未配置，程序启动时会报错并退出
 
 ## 构建与运行
@@ -100,7 +100,7 @@ cargo build --release
 docker build -t free-model .
 
 # 运行容器
-docker run -p 3000:3000 -e DASHSCOPE_API_KEY=your_api_key_here free-model
+docker run -p 3000:3000 -e DEEPSEEK_API_KEY=your_api_key_here free-model
 ```
 
 ## API 接口文档
@@ -159,7 +159,7 @@ ws.onmessage = (event) => {
 ### 3. 兼容模式代理
 
 **接口**：`POST /compatible-mode/v1/{path}`  
-**说明**：代理转发到 `https://dashscope.aliyuncs.com/compatible-mode/v1/{path}`
+**说明**：代理转发到 `https://api.deepseek.com/{path}`
 
 **示例**：
 
@@ -182,7 +182,7 @@ curl -X POST http://localhost:3000/compatible-mode/v1/chat/completions \
 │   └── handlers/
 │       ├── tts_realtime.rs        # TTS 实时语音合成处理逻辑
 │       ├── asr_realtime.rs        # ASR 实时语音识别处理逻辑
-│       └── compatible_mode.rs     # 兼容模式代理处理逻辑
+│       └── chat_completions.rs    # 兼容模式代理处理逻辑
 ├── Cargo.toml                     # 项目依赖配置
 ├── Cargo.lock                     # 依赖版本锁定
 ├── Dockerfile                     # Docker 镜像构建配置

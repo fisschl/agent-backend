@@ -26,8 +26,8 @@ async fn main() {
         .init();
 
     // 从环境变量读取 API 密钥，如果不存在则退出
-    let api_key = std::env::var("DASHSCOPE_API_KEY")
-        .expect("未找到 DASHSCOPE_API_KEY 环境变量，请在 .env 文件中设置或通过环境变量传入");
+    let api_key = std::env::var("DEEPSEEK_API_KEY")
+        .expect("未找到 DEEPSEEK_API_KEY 环境变量，请在 .env 文件中设置或通过环境变量传入");
 
     // 创建应用状态
     let state = AppState {
@@ -38,8 +38,8 @@ async fn main() {
     // 创建路由
     let app = Router::new()
         .route(
-            "/compatible-mode/v1/{*path}",
-            post(handlers::compatible_mode::handle_compatible_mode),
+            "/chat/completions",
+            post(handlers::chat_completions::handle_chat_completions),
         )
         .with_state(state)
         .layer(CorsLayer::permissive())
