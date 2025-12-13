@@ -1,49 +1,27 @@
 # free-model
 
-一个基于 Rust + Axum 构建的高性能后端服务，主要用于支持 AI 代理相关功能。采用异步架构设计，支持 WebSocket 实时通信和 HTTP 代理转发，适用于低延迟、高并发场景。
+一个基于 Rust + Axum 构建的高性能后端服务，提供 DeepSeek API 代理功能。采用异步架构设计，支持 HTTP 流式传输，适用于 AI 代理相关场景。
 
 ## 核心功能
 
-### 1. 实时 TTS（文本转语音）
+### DeepSeek API 代理
 
-- **WebSocket 接口**：`ws://localhost:3000/tts-realtime?voice={voice}`
-- **功能特性**：
-  - 支持实时文本转语音流式输出
-  - 自动 Markdown 格式转换为纯文本
-  - 支持长文本智能分片处理（超过 100 字符自动分片）
-  - 输出格式：PCM，采样率 24kHz
-  - 对接阿里云 DashScope TTS Realtime API
-
-### 2. 实时 ASR（语音识别）
-
-- **WebSocket 接口**：`ws://localhost:3000/asr-realtime`
-- **功能特性**：
-  - 支持实时语音识别流式输出
-  - 启用 VAD（语音活动检测）自动断句
-  - 直接返回纯文本结果，无需 JSON 解析
-  - 输入格式：PCM，采样率 16kHz
-  - 对接阿里云 DashScope ASR Realtime API
-
-### 3. 兼容模式代理
-
-- **HTTP 接口**：`POST /compatible-mode/v1/{path}`
-- **功能特性**：
-  - 透明代理转发到阿里云 DashScope 兼容模式 API
-  - 自动处理请求/响应头黑名单过滤
+- **HTTP 接口**：`POST /chat/completions`
+- **功能特性**:
+  - 透明代理转发到 DeepSeek API (`https://api.deepseek.com/chat/completions`)
   - 支持流式请求和响应
-  - 自动注入 API Key（如果请求未携带）
+  - 自动处理请求/响应头过滤
+  - 自动注入 API Key（如果请求未携带 Authorization 头）
 
 ## 技术栈
 
-- **语言**：Rust (Edition 2024)
-- **Web 框架**：Axum 0.8（支持 WebSocket）
+- **语言**：Rust (Edition 2021)
+- **Web 框架**：Axum 0.8
 - **异步运行时**：Tokio 1.48（完整特性）
 - **HTTP 客户端**：Reqwest 0.12（支持流式传输）
-- **WebSocket**：tokio-tungstenite 0.24
 - **中间件**：tower-http（CORS、Trace）
 - **日志**：tracing + tracing-subscriber
-- **序列化**：serde + serde_json
-- **其他**：uuid（v7）、base64、pulldown-cmark（Markdown 解析）
+- **其他**：dotenvy（环境变量加载）
 
 ## 开发环境要求
 
@@ -105,72 +83,34 @@ docker run -p 3000:3000 -e DEEPSEEK_API_KEY=your_api_key_here free-model
 
 ## API 接口文档
 
-### 1. TTS 实时语音合成
+### DeepSeek Chat Completions 代理
 
-**接口**：`GET /tts-realtime`  
-**协议**：WebSocket  
-**查询参数**：
+**接口**：`POST /chat/completions`  
+**说明**：代理转发到 DeepSeek API，支持所有 DeepSeek Chat Completions 的参数和功能。
 
-- `voice`（必填）：音色参数，如 `Cherry`
+**请求示例**：
 
-**示例**：
-
-```javascript
-const ws = new WebSocket("ws://localhost:3000/tts-realtime?voice=Cherry");
-
-// 发送文本（支持 Markdown 格式）
-ws.send("你好，这是一段**测试**文本。");
-
-// 接收音频数据（Binary 格式，PCM 编码）
-ws.onmessage = (event) => {
-  const audioData = event.data; // ArrayBuffer
-  // 处理音频数据
-};
-```
-
-### 2. ASR 实时语音识别
-
-**接口**：`GET /asr-realtime`  
-**协议**：WebSocket  
-**查询参数**：无
-
-**示例**：
-
-```javascript
-const ws = new WebSocket("ws://localhost:3000/asr-realtime");
-
-// 发送音频数据（Binary 格式，PCM 16kHz）
-ws.send(audioData); // ArrayBuffer
-
-// 接收识别结果（纯文本）
-ws.onmessage = (event) => {
-  const text = event.data; // 直接是文本字符串
-  console.log("识别结果:", text);
-};
+```bash
+curl -X POST http://localhost:3000/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-chat",
+    "messages": [
+      {
+        "role": "user",
+        "content": "你好，请介绍一下 Rust 语言"
+      }
+    ],
+    "stream": true
+  }'
 ```
 
 **特性说明**：
 
-- 启用 VAD 模式，服务端自动检测语音起止点
-- 直接返回纯文本，无需 JSON 解析
-- 支持实时增量输出
-- 错误仅记录在服务端日志，不透传给客户端
-
-### 3. 兼容模式代理
-
-**接口**：`POST /compatible-mode/v1/{path}`  
-**说明**：代理转发到 `https://api.deepseek.com/{path}`
-
-**示例**：
-
-```bash
-curl -X POST http://localhost:3000/compatible-mode/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "qwen-plus",
-    "messages": [{"role": "user", "content": "你好"}]
-  }'
-```
+- 如果请求头中未包含 `Authorization`，会自动使用配置的 `DEEPSEEK_API_KEY`
+- 完全支持 DeepSeek API 的所有参数和选项
+- 支持流式响应（设置 `"stream": true`）
+- 请求和响应头和体都会被透明转发
 
 ## 项目结构
 
@@ -178,11 +118,8 @@ curl -X POST http://localhost:3000/compatible-mode/v1/chat/completions \
 .
 ├── src/
 │   ├── main.rs                    # 程序入口，路由配置
-│   ├── handlers.rs                # 处理器模块声明
 │   └── handlers/
-│       ├── tts_realtime.rs        # TTS 实时语音合成处理逻辑
-│       ├── asr_realtime.rs        # ASR 实时语音识别处理逻辑
-│       └── chat_completions.rs    # 兼容模式代理处理逻辑
+│       └── chat_completions.rs    # DeepSeek API 代理处理逻辑
 ├── Cargo.toml                     # 项目依赖配置
 ├── Cargo.lock                     # 依赖版本锁定
 ├── Dockerfile                     # Docker 镜像构建配置
@@ -192,18 +129,15 @@ curl -X POST http://localhost:3000/compatible-mode/v1/chat/completions \
 
 ## 主要依赖说明
 
-| 依赖库            | 版本 | 用途                      |
-| ----------------- | ---- | ------------------------- |
-| axum              | 0.8  | Web 框架，支持 WebSocket  |
-| tokio             | 1.48 | 异步运行时                |
-| tower-http        | 0.6  | CORS、Trace 中间件        |
-| reqwest           | 0.12 | HTTP 客户端，支持流式传输 |
-| tokio-tungstenite | 0.24 | WebSocket 客户端          |
-| serde             | 1.0  | 序列化/反序列化           |
-| tracing           | 0.1  | 结构化日志                |
-| pulldown-cmark    | 0.12 | Markdown 解析器           |
-| uuid              | 1.18 | UUID v7 生成              |
-| base64            | 0.22 | Base64 编解码             |
+| 依赖库      | 版本 | 用途                  |
+| ----------- | ---- | --------------------- |
+| axum        | 0.8  | Web 框架              |
+| tokio       | 1.48 | 异步运行时            |
+| tower-http  | 0.6  | CORS、Trace 中间件    |
+| reqwest     | 0.12 | HTTP 客户端，支持流式 |
+| serde       | 1.0  | 序列化/反序列化       |
+| tracing     | 0.1  | 结构化日志            |
+| dotenvy     | 0.15 | 环境变量加载          |
 
 ## 日志
 
