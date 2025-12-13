@@ -12,7 +12,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["local-time", "fmt"] }
 time = { version = "0.3", features = ["macros", "formatting"] }
 dotenvy = "0.15"
-tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 futures = "0.3"
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
